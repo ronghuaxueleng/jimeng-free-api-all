@@ -2,3 +2,8 @@ dist/
 node_modules/
 logs/
 .vercel
+.ipynb_checkpoints/文生视频首位帧-checkpoint.txt
+文生视频首位帧.txt
+yarn.lock
+jimeng-free-api-all.tar
+yarn.lock

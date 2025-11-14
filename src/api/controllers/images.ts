@@ -1069,9 +1069,21 @@ export async function generateImages(
   const historyId = aigc_data.history_record_id;
   if (!historyId)
     throw new APIException(EX.API_IMAGE_GENERATION_FAILED, "记录ID不存在");
+
+  logger.info(`文生图任务已提交，history_id: ${historyId}，等待生成完成...`);
+
   let status = 20, failCode, item_list = [];
-  while (status === 20) {
+  let pollCount = 0;
+  const maxPollCount = 600; // 最多轮询10分钟
+
+  while (pollCount < maxPollCount) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
+    pollCount++;
+
+    if (pollCount % 30 === 0) {
+      logger.info(`文生图进度: 第 ${pollCount} 次轮询 (history_id: ${historyId})，当前状态: ${status}，已生成: ${item_list.length} 张图片...`);
+    }
+
     const result = await request("post", "/mweb/v1/get_history_by_ids", refreshToken, {
       data: {
         history_ids: [historyId],
@@ -1173,21 +1185,47 @@ export async function generateImages(
     });
     if (!result[historyId])
       throw new APIException(EX.API_IMAGE_GENERATION_FAILED, "记录不存在");
+
     status = result[historyId].status;
     failCode = result[historyId].fail_code;
-    item_list = result[historyId].item_list;
+    item_list = result[historyId].item_list || [];
+
+    // 检查是否已生成图片
+    if (item_list.length > 0) {
+      logger.info(`文生图完成: 状态=${status}, 已生成 ${item_list.length} 张图片`);
+      break;
+    }
+
+    // 记录详细状态
+    if (pollCount % 60 === 0) {
+      logger.info(`文生图详细状态: status=${status}, item_list.length=${item_list.length}, failCode=${failCode || 'none'}`);
+    }
+
+    // 如果状态是完成但图片数量为0，记录并继续等待
+    if (status === 10 && item_list.length === 0 && pollCount % 30 === 0) {
+      logger.info(`文生图状态已完成但无图片生成: 状态=${status}, 继续等待...`);
+    }
   }
+
+  if (pollCount >= maxPollCount) {
+    logger.warn(`文生图超时: 轮询了 ${pollCount} 次，当前状态: ${status}，已生成图片数: ${item_list.length}`);
+  }
+
   if (status === 30) {
     if (failCode === '2038')
       throw new APIException(EX.API_CONTENT_FILTERED);
     else
       throw new APIException(EX.API_IMAGE_GENERATION_FAILED);
   }
-  return item_list.map((item) => {
+
+  const imageUrls = item_list.map((item) => {
     if(!item?.image?.large_images?.[0]?.image_url)
       return item?.common_attr?.cover_url || null;
     return item.image.large_images[0].image_url;
-  });
+  }).filter(url => url !== null);
+
+  logger.info(`文生图结果: 成功生成 ${imageUrls.length} 张图片`);
+  return imageUrls;
 }
 
 export default {
