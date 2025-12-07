@@ -1,9 +1,19 @@
 
 # Jimeng AI Free 服务
 
-支持即梦超强图像生成能力，包含最新即梦4.0文生图模型、文生图、图生图功能，视频生成模型（目前官方每日赠送 66 积分，可生成 66 次），零配置部署，多路 token 支持。
+支持即梦超强图像生成能力，包含最新 **jimeng-4.5**、**jimeng-4.1** 文生图模型、文生图、图生图功能，视频生成模型（目前官方每日赠送 66 积分，可生成 66 次），零配置部署，多路 token 支持。
 
 与 OpenAI 接口完全兼容。
+
+## 更新日志
+
+### 2024-12-08 v4.5 更新
+- **修复 jimeng-4.5 模型**：修复模型映射名称错误（`high_aes_general_v45` → `high_aes_general_v40l`）
+- **更新 API 协议**：同步最新即梦 API 协议，更新 `draft_content` 和 `metrics_extra` 结构
+- **升级版本号**：`DRAFT_VERSION` 升级到 `3.3.4`
+- **扩展分辨率支持**：支持 1k/2k/4k 多种分辨率和比例（1:1, 4:3, 3:4, 16:9, 9:16, 3:2, 2:3, 21:9）
+- **默认分辨率提升**：默认分辨率从 1024x1024 提升到 2048x2048
+- **新增字段支持**：添加 `intelligent_ratio`、`resolution_type`、`metadata` 等字段
 
 
 ## 免责声明
@@ -95,10 +105,31 @@ docker run -it -d --init --name jimeng-free-api-all -p 8001:8000 -e TZ=Asia/Shan
 ### 对话补全（绘制图像&生成视频）
 
 目前支持与 openai 兼容的 `/v1/chat/completions` 接口，可自行使用与 openai 或其他兼容的客户端接入接口，模型名称包括：
-- **文生图模型**：`jimeng-4.0`、`jimeng-3.1`、`jimeng-2.1`、`jimeng-2.0-pro`、`jimeng-2.0`、`jimeng-1.4`、`jimeng-xl-pro`
+- **文生图模型**：`jimeng-4.5`（推荐）、`jimeng-4.1`、`jimeng-4.0`、`jimeng-3.1`、`jimeng-3.0`、`jimeng-2.1`、`jimeng-2.0-pro`、`jimeng-2.0`、`jimeng-1.4`、`jimeng-xl-pro`
 - **视频生成模型**：`jimeng-video-3.0`、`jimeng-video-3.0-pro`、`jimeng-video-2.0`、`jimeng-video-2.0-pro`
 
-使用文生图模型时支持智能多图生成（jimeng-4.0 支持连续场景、绘本故事等多张图片生成），使用视频模型时为视频生成。
+### 模型映射表
+
+| 用户模型名 | 内部模型名 | 说明 |
+|-----------|-----------|------|
+| `jimeng-4.5` | `high_aes_general_v40l` | 最新模型，推荐使用 |
+| `jimeng-4.1` | `high_aes_general_v41` | 高质量模型 |
+| `jimeng-4.0` | `high_aes_general_v40` | 稳定版本 |
+| `jimeng-3.1` | `high_aes_general_v30l_art_fangzhou` | 艺术风格 |
+| `jimeng-3.0` | `high_aes_general_v30l` | 通用模型 |
+
+### 支持的分辨率
+
+**1k 分辨率：**
+- 1:1 (1024x1024), 4:3 (768x1024), 3:4 (1024x768), 16:9 (1024x576), 9:16 (576x1024), 3:2 (1024x682), 2:3 (682x1024), 21:9 (1195x512)
+
+**2k 分辨率（默认）：**
+- 1:1 (2048x2048), 4:3 (2304x1728), 3:4 (1728x2304), 16:9 (2560x1440), 9:16 (1440x2560), 3:2 (2496x1664), 2:3 (1664x2496), 21:9 (3024x1296)
+
+**4k 分辨率：**
+- 1:1 (4096x4096), 4:3 (4608x3456), 3:4 (3456x4608), 16:9 (5120x2880), 9:16 (2880x5120), 3:2 (4992x3328), 2:3 (3328x4992), 21:9 (6048x2592)
+
+使用文生图模型时支持智能多图生成（jimeng-4.5、jimeng-4.1、jimeng-4.0 支持连续场景、绘本故事等多张图片生成），使用视频模型时为视频生成。
 
 ### 视频生成
 
@@ -153,16 +184,16 @@ Authorization: Bearer [sessionid]
 
 ```json
 {
-  // 支持模型：jimeng-4.0 / jimeng-3.1 / jimeng-2.1 / jimeng-2.0-pro / jimeng-2.0 / jimeng-1.4 / jimeng-xl-pro
-  "model": "jimeng-4.0",
-  // 提示词，必填。jimeng-4.0 支持多图生成，如"生成4张连续场景的图片"
+  // 支持模型：jimeng-4.5（推荐）/ jimeng-4.1 / jimeng-4.0 / jimeng-3.1 / jimeng-3.0 / jimeng-2.1 / jimeng-2.0-pro / jimeng-2.0 / jimeng-1.4 / jimeng-xl-pro
+  "model": "jimeng-4.5",
+  // 提示词，必填。jimeng-4.5、jimeng-4.1、jimeng-4.0 支持多图生成，如"生成4张连续场景的图片"
   "prompt": "美丽的风景画，夕阳下的湖泊",
   // 反向提示词，默认空字符串
   "negative_prompt": "",
-  // 图像宽度，默认1024
-  "width": 1024,
-  // 图像高度，默认1024
-  "height": 1024,
+  // 图像宽度，默认2048（支持1k/2k/4k多种分辨率）
+  "width": 2048,
+  // 图像高度，默认2048
+  "height": 2048,
   // 精细度，取值范围0-1，默认0.5
   "sample_strength": 0.5,
   // 响应格式：url 或 b64_json，默认 url
@@ -178,7 +209,7 @@ Authorization: Bearer [sessionid]
 
 ```json
 {
-  "model": "jimeng-4.0",
+  "model": "jimeng-4.5",
   "prompt": "将这些图片合成为一幅美丽的风景画",
   // 输入图片数组，支持 URL 字符串或对象格式
   "images": [
@@ -218,26 +249,26 @@ curl -X POST http://localhost:8000/v1/images/generations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your_sessionid_here" \
   -d '{
-    "model": "jimeng-4.0",
+    "model": "jimeng-4.5",
     "prompt": "美丽的日落风景，湖边的小屋",
-    "width": 1024,
-    "height": 1024,
+    "width": 2048,
+    "height": 2048,
     "sample_strength": 0.7,
     "response_format": "url"
   }'
 ```
 
-**jimeng-4.0 多图生成：**
+**jimeng-4.5 多图生成：**
 
 ```bash
 curl -X POST http://localhost:8000/v1/images/generations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your_sessionid_here" \
   -d '{
-    "model": "jimeng-4.0",
+    "model": "jimeng-4.5",
     "prompt": "生成4张连续场景的图片：春夏秋冬四季风景",
-    "width": 1024,
-    "height": 1024,
+    "width": 2048,
+    "height": 2048,
     "sample_strength": 0.5
   }'
 ```
@@ -249,7 +280,7 @@ curl -X POST http://localhost:8000/v1/images/compositions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer your_sessionid_here" \
   -d '{
-    "model": "jimeng-4.0",
+    "model": "jimeng-4.5",
     "prompt": "将这些图片合成为一幅充满创意的艺术作品",
     "images": [
       "https://example.com/image1.jpg",
@@ -282,4 +313,4 @@ curl -X POST http://localhost:8000/v1/videos/generations \
 
 感谢 [jimeng-free-api-all](https://github.com/zhizinan1997/jimeng-free-api-all) 项目的贡献
 
-感谢 [jjimeng-free-api](https://github.com/LLM-Red-Team/jimeng-free-api) 项目的贡献
+感谢 [jimeng-free-api](https://github.com/LLM-Red-Team/jimeng-free-api) 项目的贡献

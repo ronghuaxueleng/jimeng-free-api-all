@@ -7,3 +7,6 @@ logs/
 yarn.lock
 jimeng-free-api-all.tar
 yarn.lock
+.claude/settings.local.json
+.ipynb_checkpoints/Dockerfile-checkpoint
+.ipynb_checkpoints/README-checkpoint.md
