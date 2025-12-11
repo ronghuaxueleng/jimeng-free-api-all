@@ -1,5 +1,6 @@
 import _ from "lodash";
 import crypto from "crypto";
+import fs from "fs";
 
 import APIException from "@/lib/exceptions/APIException.ts";
 import EX from "@/api/consts/exceptions.ts";
@@ -16,6 +17,58 @@ const MODEL_MAP = {
   "jimeng-video-2.0": "dreamina_ic_generate_video_model_vgfm_lite",
   "jimeng-video-2.0-pro": "dreamina_ic_generate_video_model_vgfm1.0"
 };
+
+// 视频支持的分辨率和比例配置
+const VIDEO_RESOLUTION_OPTIONS: {
+  [resolution: string]: {
+    [ratio: string]: { width: number; height: number };
+  };
+} = {
+  "480p": {
+    "1:1": { width: 480, height: 480 },
+    "4:3": { width: 640, height: 480 },
+    "3:4": { width: 480, height: 640 },
+    "16:9": { width: 854, height: 480 },
+    "9:16": { width: 480, height: 854 },
+  },
+  "720p": {
+    "1:1": { width: 720, height: 720 },
+    "4:3": { width: 960, height: 720 },
+    "3:4": { width: 720, height: 960 },
+    "16:9": { width: 1280, height: 720 },
+    "9:16": { width: 720, height: 1280 },
+  },
+  "1080p": {
+    "1:1": { width: 1080, height: 1080 },
+    "4:3": { width: 1440, height: 1080 },
+    "3:4": { width: 1080, height: 1440 },
+    "16:9": { width: 1920, height: 1080 },
+    "9:16": { width: 1080, height: 1920 },
+  },
+};
+
+// 解析视频分辨率参数
+function resolveVideoResolution(
+  resolution: string = "720p",
+  ratio: string = "1:1"
+): { width: number; height: number } {
+  const resolutionGroup = VIDEO_RESOLUTION_OPTIONS[resolution];
+  if (!resolutionGroup) {
+    const supportedResolutions = Object.keys(VIDEO_RESOLUTION_OPTIONS).join(", ");
+    throw new Error(`不支持的视频分辨率 "${resolution}"。支持的分辨率: ${supportedResolutions}`);
+  }
+
+  const ratioConfig = resolutionGroup[ratio];
+  if (!ratioConfig) {
+    const supportedRatios = Object.keys(resolutionGroup).join(", ");
+    throw new Error(`在 "${resolution}" 分辨率下，不支持的比例 "${ratio}"。支持的比例: ${supportedRatios}`);
+  }
+
+  return {
+    width: ratioConfig.width,
+    height: ratioConfig.height,
+  };
+}
 
 export function getModel(model: string) {
   return MODEL_MAP[model] || MODEL_MAP[DEFAULT_MODEL];
@@ -326,19 +379,189 @@ async function uploadImageForVideo(imageUrl: string, refreshToken: string): Prom
       logger.info(`视频图片上传完成: ${pluginResult.ImageUri}`);
       return pluginResult.ImageUri;
     }
-    
+
     logger.info(`视频图片上传完成: ${fullImageUri}`);
     return fullImageUri;
-    
+
   } catch (error) {
     logger.error(`视频图片上传失败: ${error.message}`);
     throw error;
   }
 }
 
+// 从Buffer上传视频图片
+async function uploadImageBufferForVideo(buffer: Buffer, refreshToken: string): Promise<string> {
+  try {
+    logger.info(`开始从Buffer上传视频图片，大小: ${buffer.length}字节`);
+
+    // 第一步：获取上传令牌
+    const tokenResult = await request("post", "/mweb/v1/get_upload_token", refreshToken, {
+      data: {
+        scene: 2,
+      },
+    });
+
+    const { access_key_id, secret_access_key, session_token, service_id } = tokenResult;
+    if (!access_key_id || !secret_access_key || !session_token) {
+      throw new Error("获取上传令牌失败");
+    }
+
+    const actualServiceId = service_id || "tb4s082cfz";
+    logger.info(`获取上传令牌成功: service_id=${actualServiceId}`);
+
+    const fileSize = buffer.length;
+    const crc32 = calculateCRC32(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength));
+
+    logger.info(`Buffer大小: ${fileSize}字节, CRC32=${crc32}`);
+
+    // 第二步：申请图片上传权限
+    const now = new Date();
+    const timestamp = now.toISOString().replace(/[:\-]/g, '').replace(/\.\d{3}Z$/, 'Z');
+
+    const randomStr = Math.random().toString(36).substring(2, 12);
+    const applyUrl = `https://imagex.bytedanceapi.com/?Action=ApplyImageUpload&Version=2018-08-01&ServiceId=${actualServiceId}&FileSize=${fileSize}&s=${randomStr}`;
+
+    const requestHeaders = {
+      'x-amz-date': timestamp,
+      'x-amz-security-token': session_token
+    };
+
+    const authorization = createSignature('GET', applyUrl, requestHeaders, access_key_id, secret_access_key, session_token);
+
+    const applyResponse = await fetch(applyUrl, {
+      method: 'GET',
+      headers: {
+        'accept': '*/*',
+        'accept-language': 'zh-CN,zh;q=0.9',
+        'authorization': authorization,
+        'origin': 'https://jimeng.jianying.com',
+        'referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+        'x-amz-date': timestamp,
+        'x-amz-security-token': session_token,
+      },
+    });
+
+    if (!applyResponse.ok) {
+      const errorText = await applyResponse.text();
+      throw new Error(`申请上传权限失败: ${applyResponse.status} - ${errorText}`);
+    }
+
+    const applyResult = await applyResponse.json();
+
+    if (applyResult?.ResponseMetadata?.Error) {
+      throw new Error(`申请上传权限失败: ${JSON.stringify(applyResult.ResponseMetadata.Error)}`);
+    }
+
+    const uploadAddress = applyResult?.Result?.UploadAddress;
+    if (!uploadAddress || !uploadAddress.StoreInfos || !uploadAddress.UploadHosts) {
+      throw new Error(`获取上传地址失败: ${JSON.stringify(applyResult)}`);
+    }
+
+    const storeInfo = uploadAddress.StoreInfos[0];
+    const uploadHost = uploadAddress.UploadHosts[0];
+    const auth = storeInfo.Auth;
+
+    const uploadUrl = `https://${uploadHost}/upload/v1/${storeInfo.StoreUri}`;
+
+    // 第三步：上传图片文件
+    const uploadResponse = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Accept': '*/*',
+        'Authorization': auth,
+        'Content-CRC32': crc32,
+        'Content-Disposition': 'attachment; filename="undefined"',
+        'Content-Type': 'application/octet-stream',
+        'Origin': 'https://jimeng.jianying.com',
+        'Referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+      },
+      body: buffer,
+    });
+
+    if (!uploadResponse.ok) {
+      const errorText = await uploadResponse.text();
+      throw new Error(`图片上传失败: ${uploadResponse.status} - ${errorText}`);
+    }
+
+    logger.info(`Buffer图片文件上传成功`);
+
+    // 第四步：提交上传
+    const commitUrl = `https://imagex.bytedanceapi.com/?Action=CommitImageUpload&Version=2018-08-01&ServiceId=${actualServiceId}`;
+
+    const commitTimestamp = new Date().toISOString().replace(/[:\-]/g, '').replace(/\.\d{3}Z$/, 'Z');
+    const commitPayload = JSON.stringify({
+      SessionKey: uploadAddress.SessionKey,
+      SuccessActionStatus: "200"
+    });
+
+    const payloadHash = crypto.createHash('sha256').update(commitPayload, 'utf8').digest('hex');
+
+    const commitRequestHeaders = {
+      'x-amz-date': commitTimestamp,
+      'x-amz-security-token': session_token,
+      'x-amz-content-sha256': payloadHash
+    };
+
+    const commitAuthorization = createSignature('POST', commitUrl, commitRequestHeaders, access_key_id, secret_access_key, session_token, commitPayload);
+
+    const commitResponse = await fetch(commitUrl, {
+      method: 'POST',
+      headers: {
+        'accept': '*/*',
+        'authorization': commitAuthorization,
+        'content-type': 'application/json',
+        'origin': 'https://jimeng.jianying.com',
+        'referer': 'https://jimeng.jianying.com/ai-tool/video/generate',
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+        'x-amz-date': commitTimestamp,
+        'x-amz-security-token': session_token,
+        'x-amz-content-sha256': payloadHash,
+      },
+      body: commitPayload,
+    });
+
+    if (!commitResponse.ok) {
+      const errorText = await commitResponse.text();
+      throw new Error(`提交上传失败: ${commitResponse.status} - ${errorText}`);
+    }
+
+    const commitResult = await commitResponse.json();
+
+    if (commitResult?.ResponseMetadata?.Error) {
+      throw new Error(`提交上传失败: ${JSON.stringify(commitResult.ResponseMetadata.Error)}`);
+    }
+
+    if (!commitResult?.Result?.Results || commitResult.Result.Results.length === 0) {
+      throw new Error(`提交上传响应缺少结果: ${JSON.stringify(commitResult)}`);
+    }
+
+    const uploadResult = commitResult.Result.Results[0];
+    if (uploadResult.UriStatus !== 2000) {
+      throw new Error(`图片上传状态异常: UriStatus=${uploadResult.UriStatus}`);
+    }
+
+    const fullImageUri = uploadResult.Uri;
+
+    const pluginResult = commitResult.Result?.PluginResult?.[0];
+    if (pluginResult && pluginResult.ImageUri) {
+      logger.info(`Buffer视频图片上传完成: ${pluginResult.ImageUri}`);
+      return pluginResult.ImageUri;
+    }
+
+    logger.info(`Buffer视频图片上传完成: ${fullImageUri}`);
+    return fullImageUri;
+
+  } catch (error) {
+    logger.error(`Buffer视频图片上传失败: ${error.message}`);
+    throw error;
+  }
+}
+
 /**
  * 生成视频
- * 
+ *
  * @param _model 模型名称
  * @param prompt 提示词
  * @param options 选项
@@ -349,20 +572,26 @@ export async function generateVideo(
   _model: string,
   prompt: string,
   {
-    width = 1024,
-    height = 1024,
+    ratio = "1:1",
     resolution = "720p",
+    duration = 5,
     filePaths = [],
+    files = [],
   }: {
-    width?: number;
-    height?: number;
+    ratio?: string;
     resolution?: string;
+    duration?: number;
     filePaths?: string[];
+    files?: any[];
   },
   refreshToken: string
 ) {
   const model = getModel(_model);
-  logger.info(`使用模型: ${_model} 映射模型: ${model} ${width}x${height} 分辨率: ${resolution}`);
+
+  // 解析分辨率参数获取实际的宽高
+  const { width, height } = resolveVideoResolution(resolution, ratio);
+
+  logger.info(`使用模型: ${_model} 映射模型: ${model} ${width}x${height} (${ratio}@${resolution}) 时长: ${duration}秒`);
 
   // 检查积分
   const { totalCredit } = await getCredit(refreshToken);
@@ -372,8 +601,85 @@ export async function generateVideo(
   // 处理首帧和尾帧图片
   let first_frame_image = undefined;
   let end_frame_image = undefined;
-  
-  if (filePaths && filePaths.length > 0) {
+
+  // 处理上传的文件（multipart/form-data）
+  if (files && files.length > 0) {
+    let uploadIDs: string[] = [];
+    logger.info(`开始处理 ${files.length} 个上传文件用于视频生成`);
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      if (!file || !file.filepath) {
+        logger.warn(`第 ${i + 1} 个文件无效，跳过`);
+        continue;
+      }
+
+      try {
+        logger.info(`开始上传第 ${i + 1} 个文件: ${file.originalFilename || file.filepath}`);
+
+        // 读取文件内容并上传
+        const buffer = fs.readFileSync(file.filepath);
+        const imageUri = await uploadImageBufferForVideo(buffer, refreshToken);
+
+        if (imageUri) {
+          uploadIDs.push(imageUri);
+          logger.info(`第 ${i + 1} 个文件上传成功: ${imageUri}`);
+        } else {
+          logger.error(`第 ${i + 1} 个文件上传失败: 未获取到 image_uri`);
+        }
+      } catch (error) {
+        logger.error(`第 ${i + 1} 个文件上传失败: ${error.message}`);
+
+        if (i === 0) {
+          logger.error(`首帧文件上传失败，停止视频生成以避免浪费积分`);
+          throw new APIException(EX.API_REQUEST_FAILED, `首帧文件上传失败: ${error.message}`);
+        } else {
+          logger.warn(`第 ${i + 1} 个文件上传失败，将跳过此文件继续处理`);
+        }
+      }
+    }
+
+    logger.info(`文件上传完成，成功上传 ${uploadIDs.length} 个文件`);
+
+    if (uploadIDs.length === 0) {
+      logger.error(`所有文件上传失败，停止视频生成以避免浪费积分`);
+      throw new APIException(EX.API_REQUEST_FAILED, '所有文件上传失败，请检查文件是否有效');
+    }
+
+    // 构建首帧图片对象
+    if (uploadIDs[0]) {
+      first_frame_image = {
+        format: "",
+        height: height,
+        id: util.uuid(),
+        image_uri: uploadIDs[0],
+        name: "",
+        platform_type: 1,
+        source_from: "upload",
+        type: "image",
+        uri: uploadIDs[0],
+        width: width,
+      };
+      logger.info(`设置首帧图片: ${uploadIDs[0]}`);
+    }
+
+    // 构建尾帧图片对象
+    if (uploadIDs[1]) {
+      end_frame_image = {
+        format: "",
+        height: height,
+        id: util.uuid(),
+        image_uri: uploadIDs[1],
+        name: "",
+        platform_type: 1,
+        source_from: "upload",
+        type: "image",
+        uri: uploadIDs[1],
+        width: width,
+      };
+      logger.info(`设置尾帧图片: ${uploadIDs[1]}`);
+    }
+  } else if (filePaths && filePaths.length > 0) {
     let uploadIDs: string[] = [];
     logger.info(`开始上传 ${filePaths.length} 张图片用于视频生成`);
     
@@ -534,7 +840,7 @@ export async function generateVideo(
                   "seed": Math.floor(Math.random() * 100000000) + 2500000000,
                   "video_aspect_ratio": aspectRatio,
                   "video_gen_inputs": [{
-                    duration_ms: 5000,
+                    duration_ms: duration * 1000,
                     first_frame_image: first_frame_image,
                     end_frame_image: end_frame_image,
                     fps: 24,

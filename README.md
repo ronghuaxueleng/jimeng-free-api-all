@@ -7,6 +7,20 @@
 
 ## 更新日志
 
+### 2024-12-12 v4.7 更新 - 参数格式优化
+- **统一参数格式**：使用 `ratio`（比例）和 `resolution`（分辨率）替代 `width`/`height` 参数
+- **图片接口参数变更**：
+  - 移除 `width`、`height`、`size` 参数支持
+  - 新增 `ratio` 参数：支持 `1:1`、`4:3`、`3:4`、`16:9`、`9:16`、`3:2`、`2:3`、`21:9`
+  - 新增 `resolution` 参数：支持 `1k`、`2k`（默认）、`4k`
+- **视频接口参数变更**：
+  - 移除 `width`、`height`、`size` 参数支持
+  - 新增 `ratio` 参数：支持 `1:1`（默认）、`4:3`、`3:4`、`16:9`、`9:16`
+  - `resolution` 参数调整：支持 `480p`、`720p`（默认）、`1080p`
+  - 新增 `duration` 参数：视频时长，支持 5 或 10 秒
+- **支持 multipart/form-data**：图生图和视频生成支持直接上传文件
+- **优化错误提示**：使用不支持的参数时提供清晰的错误信息
+
 ### 2024-12-11 v4.6 更新 - 免积分优化
 - **修复积分扣费问题**：优化请求参数，实现文生图、图生图功能不再扣除积分
 - **核心修复内容**：
@@ -160,21 +174,44 @@ Authorization: Bearer [sessionid]
 {
   "model": "jimeng-video-3.0",
   "prompt": "视频描述文本",
-  "width": 1024,
-  "height": 1024,
+  "ratio": "16:9",
   "resolution": "720p",
-  "filePaths": ["首帧图片路径", "尾帧图片路径"]
+  "duration": 5,
+  "file_paths": ["首帧图片URL", "尾帧图片URL"]
 }
 ```
+
+**参数说明：**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| model | string | 否 | jimeng-video-3.0 | 模型名称 |
+| prompt | string | 是 | - | 视频描述文本 |
+| ratio | string | 否 | 1:1 | 宽高比：1:1, 4:3, 3:4, 16:9, 9:16 |
+| resolution | string | 否 | 720p | 分辨率：480p, 720p, 1080p |
+| duration | number | 否 | 5 | 视频时长：5 或 10 秒 |
+| file_paths | array | 否 | [] | 首帧/尾帧图片URL数组 |
+
+**视频分辨率对照表：**
+
+| 分辨率 | 1:1 | 4:3 | 3:4 | 16:9 | 9:16 |
+|--------|-----|-----|-----|------|------|
+| 480p | 480x480 | 640x480 | 480x640 | 854x480 | 480x854 |
+| 720p | 720x720 | 960x720 | 720x960 | 1280x720 | 720x1280 |
+| 1080p | 1080x1080 | 1440x1080 | 1080x1440 | 1920x1080 | 1080x1920 |
 
 响应数据：
 
 ```json
 {
-  "videoUrl": "https://v9-artist.vlabvod.com/..."
+  "created": 1733593745,
+  "data": [{
+    "url": "https://v9-artist.vlabvod.com/...",
+    "revised_prompt": "视频描述文本"
+  }]
 }
 ```
-其他模型可另选jimeng-video-3.0/jimeng-video-3.0-pro-jimeng-video-2.0/jimeng-video-2.0-pro
+其他模型可另选jimeng-video-3.0/jimeng-video-3.0-pro/jimeng-video-2.0/jimeng-video-2.0-pro
 
 
 ### 图像生成
@@ -195,46 +232,75 @@ Authorization: Bearer [sessionid]
 
 ```json
 {
-  // 支持模型：jimeng-4.5（推荐）/ jimeng-4.1 / jimeng-4.0 / jimeng-3.1 / jimeng-3.0 / jimeng-2.1 / jimeng-2.0-pro / jimeng-2.0 / jimeng-1.4 / jimeng-xl-pro
   "model": "jimeng-4.5",
-  // 提示词，必填。jimeng-4.5、jimeng-4.1、jimeng-4.0 支持多图生成，如"生成4张连续场景的图片"
   "prompt": "美丽的风景画，夕阳下的湖泊",
-  // 反向提示词，默认空字符串
   "negative_prompt": "",
-  // 图像宽度，默认2048（支持1k/2k/4k多种分辨率）
-  "width": 2048,
-  // 图像高度，默认2048
-  "height": 2048,
-  // 精细度，取值范围0-1，默认0.5
+  "ratio": "16:9",
+  "resolution": "2k",
   "sample_strength": 0.5,
-  // 响应格式：url 或 b64_json，默认 url
   "response_format": "url"
 }
 ```
+
+**参数说明：**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| model | string | 否 | jimeng-4.5 | 模型名称 |
+| prompt | string | 是 | - | 提示词，jimeng-4.x 支持多图生成（如"生成4张连续场景的图片"） |
+| negative_prompt | string | 否 | "" | 反向提示词 |
+| ratio | string | 否 | 1:1 | 宽高比：1:1, 4:3, 3:4, 16:9, 9:16, 3:2, 2:3, 21:9 |
+| resolution | string | 否 | 2k | 分辨率：1k, 2k, 4k |
+| sample_strength | number | 否 | 0.5 | 精细度，取值范围 0-1 |
+| intelligent_ratio | boolean | 否 | false | 智能比例 |
+| response_format | string | 否 | url | 响应格式：url 或 b64_json |
+
+**图片分辨率对照表：**
+
+| 分辨率 | 1:1 | 4:3 | 3:4 | 16:9 | 9:16 | 3:2 | 2:3 | 21:9 |
+|--------|-----|-----|-----|------|------|-----|-----|------|
+| 1k | 1024x1024 | 768x1024 | 1024x768 | 1024x576 | 576x1024 | 1024x682 | 682x1024 | 1195x512 |
+| 2k | 2048x2048 | 2304x1728 | 1728x2304 | 2560x1440 | 1440x2560 | 2496x1664 | 1664x2496 | 3024x1296 |
+| 4k | 4096x4096 | 4608x3456 | 3456x4608 | 5120x2880 | 2880x5120 | 4992x3328 | 3328x4992 | 6048x2592 |
 
 #### 图生图接口
 
 **POST /v1/images/compositions**
 
-支持多张输入图片的图像合成功能：
+支持多张输入图片的图像合成功能，支持 JSON 和 multipart/form-data 两种格式：
+
+**JSON 格式请求：**
 
 ```json
 {
   "model": "jimeng-4.5",
   "prompt": "将这些图片合成为一幅美丽的风景画",
-  // 输入图片数组，支持 URL 字符串或对象格式
   "images": [
     "https://example.com/image1.jpg",
-    {"url": "https://example.com/image2.jpg"},
-    "https://example.com/image3.jpg"
+    {"url": "https://example.com/image2.jpg"}
   ],
   "negative_prompt": "",
-  "width": 2560,
-  "height": 1440,
+  "ratio": "16:9",
+  "resolution": "2k",
   "sample_strength": 0.5,
   "response_format": "url"
 }
 ```
+
+**multipart/form-data 格式：** 支持直接上传图片文件，使用 `images` 字段。
+
+**参数说明：**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| model | string | 否 | jimeng-4.5 | 模型名称 |
+| prompt | string | 是 | - | 提示词 |
+| images | array | 是 | - | 输入图片数组（URL字符串或对象格式），1-10张 |
+| negative_prompt | string | 否 | "" | 反向提示词 |
+| ratio | string | 否 | 1:1 | 宽高比 |
+| resolution | string | 否 | 2k | 分辨率：1k, 2k, 4k |
+| sample_strength | number | 否 | 0.5 | 精细度，取值范围 0-1 |
+| response_format | string | 否 | url | 响应格式：url 或 b64_json |
 
 响应数据：
 
@@ -243,10 +309,10 @@ Authorization: Bearer [sessionid]
   "created": 1733593745,
   "data": [
     {
-      "url": "https://p9-heycan-hgt-sign.byteimg.com/tos-cn-i-3jr8j4ixpe/61bceb3afeb54c1c80ffdd598ac2f72d~tplv-3jr8j4ixpe-aigc_resize:0:0.jpeg?lk3s=43402efa&x-expires=1735344000&x-signature=DUY6jlx4zAXRYJeATyjZ3O6F1Pw%3D&format=.jpeg"
+      "url": "https://p9-heycan-hgt-sign.byteimg.com/..."
     }
   ],
-  "input_images": 3,
+  "input_images": 2,
   "composition_type": "multi_image_synthesis"
 }
 ```
@@ -262,10 +328,9 @@ curl -X POST http://localhost:8000/v1/images/generations \
   -d '{
     "model": "jimeng-4.5",
     "prompt": "美丽的日落风景，湖边的小屋",
-    "width": 2048,
-    "height": 2048,
-    "sample_strength": 0.7,
-    "response_format": "url"
+    "ratio": "16:9",
+    "resolution": "2k",
+    "sample_strength": 0.7
   }'
 ```
 
@@ -278,8 +343,8 @@ curl -X POST http://localhost:8000/v1/images/generations \
   -d '{
     "model": "jimeng-4.5",
     "prompt": "生成4张连续场景的图片：春夏秋冬四季风景",
-    "width": 2048,
-    "height": 2048,
+    "ratio": "4:3",
+    "resolution": "2k",
     "sample_strength": 0.5
   }'
 ```
@@ -297,10 +362,9 @@ curl -X POST http://localhost:8000/v1/images/compositions \
       "https://example.com/image1.jpg",
       "https://example.com/image2.jpg"
     ],
-    "width": 2560,
-    "height": 1440,
-    "sample_strength": 0.6,
-    "response_format": "url"
+    "ratio": "16:9",
+    "resolution": "2k",
+    "sample_strength": 0.6
   }'
 ```
 
@@ -313,9 +377,25 @@ curl -X POST http://localhost:8000/v1/videos/generations \
   -d '{
     "model": "jimeng-video-3.0",
     "prompt": "一只可爱的小猫在草地上玩耍",
-    "width": 1024,
-    "height": 1024,
-    "resolution": "720p"
+    "ratio": "16:9",
+    "resolution": "720p",
+    "duration": 5
+  }'
+```
+
+**带首帧图片的视频生成：**
+
+```bash
+curl -X POST http://localhost:8000/v1/videos/generations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer your_sessionid_here" \
+  -d '{
+    "model": "jimeng-video-3.0",
+    "prompt": "让图片中的场景动起来",
+    "ratio": "16:9",
+    "resolution": "720p",
+    "duration": 5,
+    "file_paths": ["https://example.com/first_frame.jpg"]
   }'
 ```
 

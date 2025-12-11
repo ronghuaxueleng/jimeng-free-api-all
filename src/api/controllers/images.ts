@@ -13,6 +13,69 @@ export const DEFAULT_MODEL = "jimeng-4.5";
 const DRAFT_VERSION = "3.3.4";
 const DRAFT_MIN_VERSION = "3.0.2";
 
+// 支持的图片比例和分辨率配置
+const RESOLUTION_OPTIONS: {
+  [resolution: string]: {
+    [ratio: string]: { width: number; height: number; ratio: number };
+  };
+} = {
+  "1k": {
+    "1:1": { width: 1024, height: 1024, ratio: 1 },
+    "4:3": { width: 768, height: 1024, ratio: 4 },
+    "3:4": { width: 1024, height: 768, ratio: 2 },
+    "16:9": { width: 1024, height: 576, ratio: 3 },
+    "9:16": { width: 576, height: 1024, ratio: 5 },
+    "3:2": { width: 1024, height: 682, ratio: 7 },
+    "2:3": { width: 682, height: 1024, ratio: 6 },
+    "21:9": { width: 1195, height: 512, ratio: 8 },
+  },
+  "2k": {
+    "1:1": { width: 2048, height: 2048, ratio: 1 },
+    "4:3": { width: 2304, height: 1728, ratio: 4 },
+    "3:4": { width: 1728, height: 2304, ratio: 2 },
+    "16:9": { width: 2560, height: 1440, ratio: 3 },
+    "9:16": { width: 1440, height: 2560, ratio: 5 },
+    "3:2": { width: 2496, height: 1664, ratio: 7 },
+    "2:3": { width: 1664, height: 2496, ratio: 6 },
+    "21:9": { width: 3024, height: 1296, ratio: 8 },
+  },
+  "4k": {
+    "1:1": { width: 4096, height: 4096, ratio: 101 },
+    "4:3": { width: 4608, height: 3456, ratio: 104 },
+    "3:4": { width: 3456, height: 4608, ratio: 102 },
+    "16:9": { width: 5120, height: 2880, ratio: 103 },
+    "9:16": { width: 2880, height: 5120, ratio: 105 },
+    "3:2": { width: 4992, height: 3328, ratio: 107 },
+    "2:3": { width: 3328, height: 4992, ratio: 106 },
+    "21:9": { width: 6048, height: 2592, ratio: 108 },
+  },
+};
+
+// 解析分辨率参数
+function resolveResolution(
+  resolution: string = "2k",
+  ratio: string = "1:1"
+): { width: number; height: number; imageRatio: number; resolutionType: string } {
+  const resolutionGroup = RESOLUTION_OPTIONS[resolution];
+  if (!resolutionGroup) {
+    const supportedResolutions = Object.keys(RESOLUTION_OPTIONS).join(", ");
+    throw new Error(`不支持的分辨率 "${resolution}"。支持的分辨率: ${supportedResolutions}`);
+  }
+
+  const ratioConfig = resolutionGroup[ratio];
+  if (!ratioConfig) {
+    const supportedRatios = Object.keys(resolutionGroup).join(", ");
+    throw new Error(`在 "${resolution}" 分辨率下，不支持的比例 "${ratio}"。支持的比例: ${supportedRatios}`);
+  }
+
+  return {
+    width: ratioConfig.width,
+    height: ratioConfig.height,
+    imageRatio: ratioConfig.ratio,
+    resolutionType: resolution,
+  };
+}
+
 // 模型特定的版本配置
 const MODEL_DRAFT_VERSIONS: { [key: string]: string } = {
   "jimeng-4.5": "3.3.4",
@@ -427,9 +490,68 @@ async function uploadImageFromUrl(imageUrl: string, refreshToken: string): Promi
     
     logger.info(`图片上传完成: ${fullImageUri}`);
     return fullImageUri;  // 返回完整的URI
-    
+
   } catch (error) {
     logger.error(`图片上传失败: ${error.message}`);
+    throw error;
+  }
+}
+
+// 从Buffer上传图片
+async function uploadImageBuffer(buffer: Buffer, refreshToken: string): Promise<string> {
+  try {
+    logger.info(`开始从Buffer上传图片，大小: ${buffer.length}字节`);
+
+    // 获取上传凭证
+    const proofResult = await request(
+      'POST',
+      '/mweb/v1/get_upload_image_proof',
+      refreshToken,
+      {
+        data: {
+          scene: 'aigc_image',
+          file_name: `${util.uuid()}.jpg`,
+          file_size: buffer.length,
+        }
+      }
+    );
+
+    if (!proofResult || !proofResult.proof_info) {
+      logger.error(`获取上传凭证失败: ${JSON.stringify(proofResult)}`);
+      throw new APIException(EX.API_REQUEST_FAILED, '获取上传凭证失败');
+    }
+
+    logger.info(`获取上传凭证成功`);
+
+    // 上传文件
+    const { proof_info } = proofResult;
+    const uploadProofUrl = 'https://imagex.bytedanceapi.com/';
+
+    const formData = new FormData();
+    const blob = new Blob([buffer], { type: 'image/jpeg' });
+    formData.append('file', blob, `${util.uuid()}.jpg`);
+
+    const uploadResult = await fetch(uploadProofUrl + '?' + new URLSearchParams(proof_info.query_params).toString(), {
+      method: 'POST',
+      headers: proof_info.headers,
+      body: formData,
+    });
+
+    if (!uploadResult.ok) {
+      logger.error(`上传文件失败: 状态码 ${uploadResult.status}`);
+      throw new APIException(EX.API_REQUEST_FAILED, `上传文件失败: 状态码 ${uploadResult.status}`);
+    }
+
+    // 验证 proof_info.image_uri 是否存在
+    if (!proof_info.image_uri) {
+      logger.error(`上传凭证中缺少 image_uri: ${JSON.stringify(proof_info)}`);
+      throw new APIException(EX.API_REQUEST_FAILED, '上传凭证中缺少 image_uri');
+    }
+
+    logger.info(`Buffer图片上传成功: ${proof_info.image_uri}`);
+    return proof_info.image_uri;
+  } catch (error) {
+    logger.error(`Buffer图片上传失败: ${error.message}`);
     throw error;
   }
 }
@@ -438,24 +560,31 @@ async function uploadImageFromUrl(imageUrl: string, refreshToken: string): Promi
 export async function generateImageComposition(
   _model: string,
   prompt: string,
-  imageUrls: string[],
+  imageUrls: (string | Buffer)[],
   {
-    width = 2560,
-    height = 1440,
+    ratio = "1:1",
+    resolution = "2k",
     sampleStrength = 0.5,
     negativePrompt = "",
+    intelligentRatio = false,
   }: {
-    width?: number;
-    height?: number;
+    ratio?: string;
+    resolution?: string;
     sampleStrength?: number;
     negativePrompt?: string;
+    intelligentRatio?: boolean;
   },
   refreshToken: string
 ) {
   const model = getModel(_model);
   const draftVersion = getDraftVersion(_model);
   const imageCount = imageUrls.length;
-  logger.info(`使用模型: ${_model} 映射模型: ${model} 图生图功能 ${imageCount}张图片 ${width}x${height} 精细度: ${sampleStrength}`);
+
+  // 解析分辨率
+  const resolutionResult = resolveResolution(resolution, ratio);
+  const { width, height, imageRatio, resolutionType } = resolutionResult;
+
+  logger.info(`使用模型: ${_model} 映射模型: ${model} 图生图功能 ${imageCount}张图片 ${width}x${height} (${ratio}@${resolution}) 精细度: ${sampleStrength}`);
 
   const { totalCredit } = await getCredit(refreshToken);
   if (totalCredit <= 0)
@@ -465,7 +594,15 @@ export async function generateImageComposition(
   const uploadedImageIds: string[] = [];
   for (let i = 0; i < imageUrls.length; i++) {
     try {
-      const imageId = await uploadImageFromUrl(imageUrls[i], refreshToken);
+      const image = imageUrls[i];
+      let imageId: string;
+      if (typeof image === 'string') {
+        logger.info(`正在处理第 ${i + 1}/${imageCount} 张图片 (URL)...`);
+        imageId = await uploadImageFromUrl(image, refreshToken);
+      } else {
+        logger.info(`正在处理第 ${i + 1}/${imageCount} 张图片 (Buffer)...`);
+        imageId = await uploadImageBuffer(image, refreshToken);
+      }
       uploadedImageIds.push(imageId);
       logger.info(`图片 ${i + 1}/${imageCount} 上传成功: ${imageId}`);
     } catch (error) {
@@ -485,7 +622,7 @@ export async function generateImageComposition(
     type: "image",
     scene: "ImageBasicGenerate",
     modelReqKey: _model,
-    resolutionType: "2k",
+    resolutionType,
     abilityList: uploadedImageIds.map(() => ({
       abilityName: "byte_edit",
       strength: sampleStrength,
@@ -496,7 +633,7 @@ export async function generateImageComposition(
     reportParams: {
       enterSource: "generate",
       vipSource: "generate",
-      extraVipFunctionKey: `${_model}-2k`,
+      extraVipFunctionKey: `${_model}-${resolutionType}`,
       useVipFunctionDetailsReporterHoc: true,
     },
   };
@@ -554,17 +691,17 @@ export async function generateImageComposition(
                     type: "",
                     id: util.uuid(),
                     model,
-                    prompt: `####${prompt}`,
+                    prompt: `${'#'.repeat(imageCount * 2)}${prompt}`,
                     sample_strength: sampleStrength,
-                    image_ratio: 1,
+                    image_ratio: imageRatio,
                     large_image_info: {
                       type: "",
                       id: util.uuid(),
-                      height: 2048,
-                      width: 2048,
-                      resolution_type: "2k"
+                      height,
+                      width,
+                      resolution_type: resolutionType
                     },
-                    intelligent_ratio: false,
+                    intelligent_ratio: intelligentRatio,
                   },
                   ability_list: uploadedImageIds.map((imageId) => ({
                     type: "",
@@ -754,24 +891,30 @@ async function generateMultiImages(
   _model: string,
   prompt: string,
   {
-    width = 2048,
-    height = 2048,
+    ratio = "1:1",
+    resolution = "2k",
     sampleStrength = 0.5,
     negativePrompt = "",
+    intelligentRatio = false,
   }: {
-    width?: number;
-    height?: number;
+    ratio?: string;
+    resolution?: string;
     sampleStrength?: number;
     negativePrompt?: string;
+    intelligentRatio?: boolean;
   },
   refreshToken: string
 ) {
   const model = getModel(_model);
 
+  // 解析分辨率
+  const resolutionResult = resolveResolution(resolution, ratio);
+  const { width, height, imageRatio, resolutionType } = resolutionResult;
+
   // 从prompt中提取图片数量，默认为4张
   const targetImageCount = prompt.match(/(\d+)张/) ? parseInt(prompt.match(/(\d+)张/)[1]) : 4;
 
-  logger.info(`使用 ${_model} 多图生成: ${targetImageCount}张图片 ${width}x${height} 精细度: ${sampleStrength}`);
+  logger.info(`使用 ${_model} 多图生成: ${targetImageCount}张图片 ${width}x${height} (${ratio}@${resolution}) 精细度: ${sampleStrength}`);
 
   const componentId = util.uuid();
   const submitId = util.uuid();
@@ -781,12 +924,12 @@ async function generateMultiImages(
     type: "image",
     scene: "ImageMultiGenerate",
     modelReqKey: _model,
-    resolutionType: "2k",
+    resolutionType,
     abilityList: [],
     reportParams: {
       enterSource: "generate",
       vipSource: "generate",
-      extraVipFunctionKey: `${_model}-2k`,
+      extraVipFunctionKey: `${_model}-${resolutionType}`,
       useVipFunctionDetailsReporterHoc: true,
     },
   };
@@ -850,16 +993,16 @@ async function generateMultiImages(
                     negative_prompt: negativePrompt,
                     seed: Math.floor(Math.random() * 100000000) + 2500000000,
                     sample_strength: sampleStrength,
-                    image_ratio: 1,
+                    image_ratio: imageRatio,
                     large_image_info: {
                       type: "",
                       id: util.uuid(),
                       min_version: DRAFT_MIN_VERSION,
                       height,
                       width,
-                      resolution_type: "2k",
+                      resolution_type: resolutionType,
                     },
-                    intelligent_ratio: false,
+                    intelligent_ratio: intelligentRatio,
                   },
                   gen_option: {
                     type: "",
@@ -1025,21 +1168,27 @@ export async function generateImages(
   _model: string,
   prompt: string,
   {
-    width = 2048,
-    height = 2048,
+    ratio = "1:1",
+    resolution = "2k",
     sampleStrength = 0.5,
     negativePrompt = "",
+    intelligentRatio = false,
   }: {
-    width?: number;
-    height?: number;
+    ratio?: string;
+    resolution?: string;
     sampleStrength?: number;
     negativePrompt?: string;
+    intelligentRatio?: boolean;
   },
   refreshToken: string
 ) {
   const model = getModel(_model);
 
-  logger.info(`使用模型: ${_model} 映射模型: ${model} ${width}x${height} 精细度: ${sampleStrength}`);
+  // 解析分辨率
+  const resolutionResult = resolveResolution(resolution, ratio);
+  const { width, height, imageRatio, resolutionType } = resolutionResult;
+
+  logger.info(`使用模型: ${_model} 映射模型: ${model} ${width}x${height} (${ratio}@${resolution}) 精细度: ${sampleStrength}`);
 
 
   const { totalCredit } = await getCredit(refreshToken);
@@ -1056,7 +1205,7 @@ export async function generateImages(
 
   // 如果是多图请求，使用专门的处理逻辑
   if (isMultiImageRequest) {
-    return await generateMultiImages(_model, prompt, { width, height, sampleStrength, negativePrompt }, refreshToken);
+    return await generateMultiImages(_model, prompt, { ratio, resolution, sampleStrength, negativePrompt, intelligentRatio }, refreshToken);
   }
 
   const componentId = util.uuid();
@@ -1067,12 +1216,12 @@ export async function generateImages(
     type: "image",
     scene: "ImageBasicGenerate",
     modelReqKey: _model,
-    resolutionType: "2k",
+    resolutionType,
     abilityList: [],
     reportParams: {
       enterSource: "generate",
       vipSource: "generate",
-      extraVipFunctionKey: `${_model}-2k`,
+      extraVipFunctionKey: `${_model}-${resolutionType}`,
       useVipFunctionDetailsReporterHoc: true,
     },
   };
@@ -1132,16 +1281,16 @@ export async function generateImages(
                     negative_prompt: negativePrompt,
                     seed: Math.floor(Math.random() * 100000000) + 2500000000,
                     sample_strength: sampleStrength,
-                    image_ratio: 1,
+                    image_ratio: imageRatio,
                     large_image_info: {
                       type: "",
                       id: util.uuid(),
                       min_version: DRAFT_MIN_VERSION,
                       height,
                       width,
-                      resolution_type: "2k",
+                      resolution_type: resolutionType,
                     },
-                    intelligent_ratio: false,
+                    intelligent_ratio: intelligentRatio,
                   },
                   gen_option: {
                     type: "",
