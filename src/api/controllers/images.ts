@@ -8,7 +8,7 @@ import { getCredit, receiveCredit, request } from "./core.ts";
 import logger from "@/lib/logger.ts";
 import { getModelConfig } from "@/lib/configs/model-config.ts";
 
-const DEFAULT_ASSISTANT_ID = "513695";
+const DEFAULT_ASSISTANT_ID = 513695;
 export const DEFAULT_MODEL = "jimeng-4.5";
 const DRAFT_VERSION = "3.3.4";
 const DRAFT_MIN_VERSION = "3.0.2";
@@ -478,21 +478,34 @@ export async function generateImageComposition(
 
   const componentId = util.uuid();
   const submitId = util.uuid();
+
+  // 构建图生图的 sceneOptions（不包含 benefitCount 以避免扣积分）
+  // 注意：sceneOptions 需要是对象，在 metrics_extra 中会被 JSON.stringify
+  const sceneOption = {
+    type: "image",
+    scene: "ImageBasicGenerate",
+    modelReqKey: _model,
+    resolutionType: "2k",
+    abilityList: uploadedImageIds.map(() => ({
+      abilityName: "byte_edit",
+      strength: sampleStrength,
+      source: {
+        imageUrl: `blob:https://jimeng.jianying.com/${util.uuid()}`
+      }
+    })),
+    reportParams: {
+      enterSource: "generate",
+      vipSource: "generate",
+      extraVipFunctionKey: `${_model}-2k`,
+      useVipFunctionDetailsReporterHoc: true,
+    },
+  };
+
   const { aigc_data } = await request(
     "post",
     "/mweb/v1/aigc_draft/generate",
     refreshToken,
     {
-      params: {
-        babi_param: encodeURIComponent(
-          JSON.stringify({
-            scenario: "image_video_generation",
-            feature_key: "aigc_to_image",
-            feature_entrance: "to_image",
-            feature_entrance_detail: "to_image-" + model,
-          })
-        ),
-      },
       data: {
         extend: {
           root_model: model,
@@ -502,6 +515,7 @@ export async function generateImageComposition(
           promptSource: "custom",
           generateCount: 1,
           enterFrom: "click",
+          sceneOptions: JSON.stringify([sceneOption]),
           generateId: submitId,
           isRegenerate: false
         }),
@@ -587,7 +601,7 @@ export async function generateImageComposition(
           ],
         }),
         http_common_info: {
-          aid: Number(DEFAULT_ASSISTANT_ID),
+          aid: DEFAULT_ASSISTANT_ID,
         },
       },
     }
@@ -685,7 +699,7 @@ export async function generateImageComposition(
           ],
         },
         http_common_info: {
-          aid: Number(DEFAULT_ASSISTANT_ID),
+          aid: DEFAULT_ASSISTANT_ID,
         },
       },
     });
@@ -762,8 +776,8 @@ async function generateMultiImages(
   const componentId = util.uuid();
   const submitId = util.uuid();
 
-  // 构建多图模式的 sceneOptions
-  const sceneOptions = JSON.stringify([{
+  // 构建多图模式的 sceneOptions（不包含 benefitCount 以避免扣积分）
+  const sceneOption = {
     type: "image",
     scene: "ImageMultiGenerate",
     modelReqKey: _model,
@@ -775,7 +789,7 @@ async function generateMultiImages(
       extraVipFunctionKey: `${_model}-2k`,
       useVipFunctionDetailsReporterHoc: true,
     },
-  }]);
+  };
 
   const { aigc_data } = await request(
     "post",
@@ -791,7 +805,7 @@ async function generateMultiImages(
           promptSource: "custom",
           generateCount: 1,
           enterFrom: "click",
-          sceneOptions,
+          sceneOptions: JSON.stringify([sceneOption]),
           generateId: submitId,
           isRegenerate: false,
           templateId: "",
@@ -858,7 +872,7 @@ async function generateMultiImages(
           ],
         }),
         http_common_info: {
-          aid: Number(DEFAULT_ASSISTANT_ID),
+          aid: DEFAULT_ASSISTANT_ID,
         },
       },
     }
@@ -957,7 +971,7 @@ async function generateMultiImages(
           ],
         },
         http_common_info: {
-          aid: Number(DEFAULT_ASSISTANT_ID),
+          aid: DEFAULT_ASSISTANT_ID,
         },
       },
     });
@@ -1048,8 +1062,8 @@ export async function generateImages(
   const componentId = util.uuid();
   const submitId = util.uuid();
 
-  // 构建 sceneOptions 用于 metrics_extra
-  const sceneOptions = JSON.stringify([{
+  // 构建 sceneOptions 用于 metrics_extra（不包含 benefitCount 以避免扣积分）
+  const sceneOption = {
     type: "image",
     scene: "ImageBasicGenerate",
     modelReqKey: _model,
@@ -1061,7 +1075,7 @@ export async function generateImages(
       extraVipFunctionKey: `${_model}-2k`,
       useVipFunctionDetailsReporterHoc: true,
     },
-  }]);
+  };
 
   const { aigc_data } = await request(
     "post",
@@ -1077,7 +1091,7 @@ export async function generateImages(
           promptSource: "custom",
           generateCount: 1,
           enterFrom: "click",
-          sceneOptions,
+          sceneOptions: JSON.stringify([sceneOption]),
           generateId: submitId,
           isRegenerate: false,
         }),
@@ -1140,7 +1154,7 @@ export async function generateImages(
           ],
         }),
         http_common_info: {
-          aid: Number(DEFAULT_ASSISTANT_ID),
+          aid: DEFAULT_ASSISTANT_ID,
         },
       },
     }
@@ -1258,7 +1272,7 @@ export async function generateImages(
           ],
         },
         http_common_info: {
-          aid: Number(DEFAULT_ASSISTANT_ID),
+          aid: DEFAULT_ASSISTANT_ID,
         },
       },
     });

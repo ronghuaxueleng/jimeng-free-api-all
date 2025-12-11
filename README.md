@@ -7,6 +7,17 @@
 
 ## 更新日志
 
+### 2024-12-11 v4.6 更新 - 免积分优化
+- **修复积分扣费问题**：优化请求参数，实现文生图、图生图功能不再扣除积分
+- **核心修复内容**：
+  - 添加关键请求参数：`da_version`、`web_component_open_flag`、`web_version`、`aigc_features`
+  - 修正参数名：`web_id` → `webId`
+  - 修复 `sceneOptions` 双重 JSON 序列化问题
+  - 移除图生图中触发计费的 `babi_param` 参数
+  - 统一 `DEFAULT_ASSISTANT_ID` 为数字类型
+- **更新浏览器指纹**：Chrome 版本从 131 更新到 142
+- **移除冗余 Header**：移除 `Last-event-id` 字段
+
 ### 2024-12-08 v4.5 更新
 - **修复 jimeng-4.5 模型**：修复模型映射名称错误（`high_aes_general_v45` → `high_aes_general_v40l`）
 - **更新 API 协议**：同步最新即梦 API 协议，更新 `draft_content` 和 `metrics_extra` 结构

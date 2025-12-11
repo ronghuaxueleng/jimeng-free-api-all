@@ -7,7 +7,7 @@ import util from "@/lib/util.ts";
 import { getCredit, receiveCredit, request } from "./core.ts";
 import logger from "@/lib/logger.ts";
 
-const DEFAULT_ASSISTANT_ID = "513695";
+const DEFAULT_ASSISTANT_ID = 513695;
 export const DEFAULT_MODEL = "jimeng-video-3.0";
 const DRAFT_VERSION = "3.2.8";
 const MODEL_MAP = {
@@ -552,7 +552,7 @@ export async function generateVideo(
           }],
         }),
         http_common_info: {
-          aid: Number(DEFAULT_ASSISTANT_ID),
+          aid: DEFAULT_ASSISTANT_ID,
         },
       },
     }

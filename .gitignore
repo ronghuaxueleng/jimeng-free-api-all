@@ -10,3 +10,6 @@ yarn.lock
 .claude/settings.local.json
 .ipynb_checkpoints/Dockerfile-checkpoint
 .ipynb_checkpoints/README-checkpoint.md
+.ipynb_checkpoints/package-checkpoint.json
+.ipynb_checkpoints/tsconfig-checkpoint.json
+src/api/controllers/.ipynb_checkpoints/images-checkpoint.ts
